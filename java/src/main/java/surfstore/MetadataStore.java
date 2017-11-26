@@ -18,13 +18,20 @@ public final class MetadataStore {
     private static final Logger logger = Logger.getLogger(MetadataStore.class.getName());
 
     protected Server server;
-	protected ConfigReader config;
+    protected ConfigReader config;
+    
+    private final ManagedChannel blockChannel;
+    private final BlockStoreGrpc.BlockStoreBlockingStub blockStub;
+
 
     public MetadataStore(ConfigReader config) {
+        this.blockChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getBlockPort())
+                .usePlaintext(true).build();
+        this.blockStub = BlockStoreGrpc.newBlockingStub(blockChannel);
     	this.config = config;
 	}
 
-	private void start(int port, int numThreads) throws IOException {
+    private void start(int port, int numThreads) throws IOException {
         server = ServerBuilder.forPort(port)
                 .addService(new MetadataStoreImpl())
                 .executor(Executors.newFixedThreadPool(numThreads))
@@ -99,5 +106,33 @@ public final class MetadataStore {
         }
 
         // TODO: Implement the other RPCs!
+        public void ReadFile(surfstore.SurfStoreBasic.FileInfo request,
+          io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.FileInfo> responseObserver) {
+          //asyncUnimplementedUnaryCall(METHOD_READ_FILE, responseObserver);
+          
+        }
+
+        public void ModifyFile(surfstore.SurfStoreBasic.FileInfo request,
+          io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.WriteResult> responseObserver) {
+
+           //asyncUnimplementedUnaryCall(METHOD_MODIFY_FILE, responseObserver);
+
+        }
+
+        public void DeleteFile(surfstore.SurfStoreBasic.FileInfo request,
+          io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.WriteResult> responseObserver) {
+
+          //asyncUnimplementedUnaryCall(METHOD_DELETE_FILE, responseObserver);
+          
+
+        }
+
+        public  IsLeader(surfstore.SurfStoreBasic.Empty request,
+           io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.SimpleAnswer> responseObserver) {
+
+           asyncUnimplementedUnaryCall(METHOD_IS_LEADER, responseObserver);
+           
+        }
+  
     }
 }

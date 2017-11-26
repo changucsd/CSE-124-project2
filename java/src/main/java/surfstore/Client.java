@@ -1,9 +1,10 @@
-package surfstore;
+ package surfstore;
 
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
+
 import com.google.protobuf.ByteString;
 
 import io.grpc.ManagedChannel;
@@ -12,8 +13,10 @@ import net.sourceforge.argparse4j.ArgumentParsers;
 import net.sourceforge.argparse4j.inf.ArgumentParser;
 import net.sourceforge.argparse4j.inf.ArgumentParserException;
 import net.sourceforge.argparse4j.inf.Namespace;
-import surfstore.SurfStoreBasic.Empty;
 import surfstore.SurfStoreBasic.Block;
+import surfstore.SurfStoreBasic.Block.Builder;
+import surfstore.SurfStoreBasic.Empty;
+
 
 public final class Client {
     private static final Logger logger = Logger.getLogger(Client.class.getName());
@@ -43,56 +46,51 @@ public final class Client {
         blockChannel.shutdown().awaitTermination(5, TimeUnit.SECONDS);
     }
     
-    private void ensure(boolean b){
-        if (b == false){
-            throw new RuntimeException("Asssertion failed!");
-        }
-
+    private void ensure(boolean b) {
+	if (b == false) {
+		throw new RuntimeException("Assertion failed!");
+	}
     }
 
-    private static Block stringToBlock(String s){
-        Builder builder = Block.newBuilder();
+    private static Block stringToBlock(String s) {
+	Builder builder = Block.newBuilder();
 
-        try{
-            builder.setData(ByteString.copyFrom(s,"UTF-8"));
-        }catch (UnsupportedEncodingException e){
-            throw new  RuntimeException(e);
-        }
-        
-        builder.setHash(HashUtils.sha256(s));
+	try {
+		builder.setData(ByteString.copyFrom(s, "UTF-8"));
+	} catch (UnsupportedEncodingException e) {
+		throw new RuntimeException(e);
+	}
 
-        return builder.build();  //turns the Builder into a Block
+	builder.setHash(HashUtils.sha256(s));
 
+	return builder.build(); // turns the Builder into a Block
     }
-	private void go() {
-		//metadataStub.ping(Empty.newBuilder().build());
-        //logger.info("Successfully pinged the Metadata server");
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+    private void go() {
+	// metadataStub.ping(Empty.newBuilder().build());
+        // logger.info("Successfully pinged the Metadata server");
         
         blockStub.ping(Empty.newBuilder().build());
         logger.info("Successfully pinged the Blockstore server");
-        
 
-        // Implement your client here
+		Block b1 = stringToBlock("block_01");
+		Block b2 = stringToBlock("block_02");
 
-        Block b1 = stringToBlock("block_01");
-        Block b2 = stringToBlock("block_02");
+		ensure(blockStub.hasBlock(b1).getAnswer() == false);
+		ensure(blockStub.hasBlock(b2).getAnswer() == false);
+		
+		blockStub.storeBlock(b1);
+		ensure(blockStub.hasBlock(b1).getAnswer() == true);
 
-        ensure(blockStub.hasBlock(b1).getAnswer() == false); // false
-        ensure(blockStub.hasBlock(b2).getAnswer() == false);
+		blockStub.storeBlock(b2);
+		ensure(blockStub.hasBlock(b2).getAnswer() == true);
 
-        blockStub.storeBlock(b1);
-        ensure(blockStub.hasBlock(b1).getAnswer() == true);
+		Block b1prime = blockStub.getBlock(b1);
+		ensure(b1prime.getHash().equals(b1.getHash()));
+		ensure(b1.getData().equals(b1.getData()));
 
-        blockStub.storeBlock(b2);
-        ensure(blockStub.hasBlock(b2).getAnswer() == true);
-
-        Block b1prime = blockStub.getBlock(b1);
-        ensure(b1prime.getHash().euqals(b1.getHash()));
-        ensure(b1.getData().euqals(b1.getData()));
-
-        logger.info("We passed all tests!");
-
-	}
+		logger.info("We passed all the tests... yay!");
+    }
 
     private static Namespace parseArgs(String[] args) {
         ArgumentParser parser = ArgumentParsers.newFor("Client").build()
