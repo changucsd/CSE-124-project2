@@ -36,8 +36,8 @@ public final class MetadataStore {
     protected Server server;
     protected ConfigReader config;
     
-    private final ManagedChannel blockChannel;
-    private final BlockStoreGrpc.BlockStoreBlockingStub blockStub;
+    private static  ManagedChannel blockChannel;
+    private static  BlockStoreGrpc.BlockStoreBlockingStub blockStub;
 
 
     public MetadataStore(ConfigReader config) {
@@ -190,7 +190,7 @@ public final class MetadataStore {
                 String fileName = request.getFilename();
                 List<String> requestBlocklist = new ArrayList<String>(request.getBlocklistList());
                 
-                
+                                
  		WriteResult.Builder builder = WriteResult.newBuilder();
 
                 /* check BlockStore inforamtion first*/
@@ -201,9 +201,9 @@ public final class MetadataStore {
                
                 	Block.Builder sentBlock = Block.newBuilder();
                 	sentBlock.setHash(eachHash);
-                        sentBlock.build();
+                        Block myBlock = sentBlock.build();
 
-                 	if(blockStub.hasBlock(sentBlock).getAnswer() == false)
+                 	if(blockStub.hasBlock(myBlock).getAnswer() == false)
                         {
                         	missingHash.add(eachHash);
                         }
