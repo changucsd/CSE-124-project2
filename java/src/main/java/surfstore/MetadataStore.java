@@ -142,8 +142,9 @@ public final class MetadataStore {
         }
 
         // TODO: Implement the other RPCs!
-        //@Override
-        public void ReadFile(surfstore.SurfStoreBasic.FileInfo request,
+
+        @Override
+        public void readFile(surfstore.SurfStoreBasic.FileInfo request,
           		     io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.FileInfo> responseObserver) {
           //asyncUnimplementedUnaryCall(METHOD_READ_FILE, responseObserver);
 
@@ -178,121 +179,136 @@ public final class MetadataStore {
                 responseObserver.onCompleted();
         }
 
-        //@Override
-        public void ModifyFile(surfstore.SurfStoreBasic.FileInfo request,
+        @Override
+        public void modifyFile(surfstore.SurfStoreBasic.FileInfo request,
          		       io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.WriteResult> responseObserver) {
 
            //asyncUnimplementedUnaryCall(METHOD_MODIFY_FILE, responseObserver);
 	        logger.info("Modify file with name:" + request.getFilename());
+               
 
-	
-                int version = request.getVersion();
-                String fileName = request.getFilename();
-                List<String> requestBlocklist = new ArrayList<String>(request.getBlocklistList());
+            int version = request.getVersion();
+            String fileName = request.getFilename();
+            List<String> requestBlocklist = new ArrayList<String>(request.getBlocklistList());
                 
                                 
- 		WriteResult.Builder builder = WriteResult.newBuilder();
+            WriteResult.Builder builder = WriteResult.newBuilder();
 
-                /* check BlockStore inforamtion first*/
-           	List<String> missingHash = new ArrayList<String>();
+            /* check BlockStore inforamtion */
+            List<String> missingHash = new ArrayList<String>();
 
-                for(String eachHash: requestBlocklist)
-                {
+            for(String eachHash: requestBlocklist)
+            {
                
-                	Block.Builder sentBlock = Block.newBuilder();
-                	sentBlock.setHash(eachHash);
-                        Block myBlock = sentBlock.build();
+                Block.Builder sentBlock = Block.newBuilder();
+                sentBlock.setHash(eachHash);
+                Block myBlock = sentBlock.build();
 
-                 	if(blockStub.hasBlock(myBlock).getAnswer() == false)
-                        {
-                        	missingHash.add(eachHash);
-                        }
+                if(blockStub.hasBlock(myBlock).getAnswer() == false)
+                {
+                    missingHash.add(eachHash);
                 }
+            }
 
-                if(missingHash.isEmpty()) // all the blocks are in blockstore               
+             /*check version first*/
+            int currentVersion = 0;
+
+            if(fileName != null && storedFile.containsKey(fileName) == true)  // the file has been created
+            {  
+                Info existingFile = storedFile.get(fileName);
+                currentVersion = existingFile.version;
+
+                if(version == currentVersion + 1)    // version checked
                 {
-                  
-                         int currentVersion = 0;
 
-                         if(fileName != null && storedFile.containsKey(fileName) == true)  // the file has been created
-                         {   
-                         	Info existingFile = storedFile.get(fileName);
-                         	currentVersion = existingFile.version;
-
-                          	if(version == currentVersion + 1)    // ok to modify
-                                {
-                                	existingFile.hashList.clear();   //  clear the blocks inside the Info
+                    if(missingHash.isEmpty() ==  true)  // missingblock checked
+                    {
+                        existingFile.hashList.clear();   //  clear the blocks inside the Info
                        
-                                	for(String each: requestBlocklist)
-                                	{
-                                		existingFile.hashList.add(each);
-                                        }
+                        for(String each : requestBlocklist)
+                        {
+                            existingFile.hashList.add(each);
+                        }
 
-                                        existingFile.version = version;
+                        existingFile.version = version;
                                         
-                                        builder.setResultValue(0);
-		                        builder.setCurrentVersion(existingFile.version);   // blockstore checked, verion checked
-		              
-                                }
-                                else                                                         // fail to modify because of version
-                                {
-                                     
-                                        builder.setResultValue(1);                                // version check fail with file existed
-		                        builder.setCurrentVersion(currentVersion); 
-                                }
-
-
-                         }
-
-                         else                                                                // the file has never been created before
-                         {
-                         	if(version == 0 + 1)                             // ok to modify with file creation
-                         	{       
-                                        Info newFile = new Info();
-                                        newFile.version = version;
-                                        newFile.hashList = new ArrayList<String>(requestBlocklist);
-                                             
-                                        storedFile.put(fileName,newFile);
-
-                                        builder.setResultValue(0);                                
-		                        builder.setCurrentVersion(newFile.version); 
-                                   
-                         	}
-
-
-                         	else                                                         // fail to modify
-                         	{ 
-                            	        builder.setResultValue(1);                                // version check fail with file non-existed
-		                        builder.setCurrentVersion(0); 
-                         	}
-
-                         }  
-                          
-                 }
-                    
-                else                                                                        // there are missingblocks, need to upload first
-                {
-         		 if(fileName != null && storedFile.containsKey(fileName) == true)      // the file has been created
-                         {
-                             builder.setCurrentVersion(storedFile.get(fileName).version);
-                         }
-                         else
-                         {
-                             builder.setCurrentVersion(0);
-                         }
+                        builder.setResultValue(0);
+                        builder.setCurrentVersion(currentVersion);   // blockstore checked, verion checked
+                    }
+                        
+                    else                                // there is missingblocks
+                    {
 
                          builder.setResultValue(2);
-		         builder.addAllMissingBlocks(new ArrayList<String>(missingHash));
-                         
+                         builder.setCurrentVersion(currentVersion);
+                         builder.addAllMissingBlocks(new ArrayList<String>(missingHash));
+
+                    }            
+
+
+                      
                 }
 
-                WriteResult response = builder.build();
-                responseObserver.onNext(response);
-                responseObserver.onCompleted();          
+                else                                                         // fail to modify because of version
+                {
+                                     
+                    builder.setResultValue(1);                                // version check fail with file existed
+                    builder.setCurrentVersion(currentVersion); 
+                }
+
+            
+            }
+
+            else                                                              //file has not been created, so verion is 0
+            {
+                
+                if(version == currentVersion + 1)    // version checked (version must be 1)
+                {
+
+                    if(missingHash.isEmpty() ==  true)  // missingblock checked and build a new file 
+                    {
+                        Info newFile = new Info();
+                        newFile.version = version;
+                        newFile.hashList = new ArrayList<String>(requestBlocklist);
+                                             
+                        storedFile.put(fileName,newFile);
+
+                        builder.setResultValue(0);                                
+                        builder.setCurrentVersion(newFile.version); 
+                    }
+                        
+                    else                                // there is missingblocks, dont create file and send 0 back
+                    {
+
+                         builder.setResultValue(2);
+                         builder.setCurrentVersion(currentVersion);
+                         builder.addAllMissingBlocks(new ArrayList<String>(missingHash));
+
+                    }            
+
+
+                      
+                }
+
+                else                                                         // fail to modify because of version
+                {                                   
+                    builder.setResultValue(1);                                // version check fail and send 0 back
+                    builder.setCurrentVersion(currentVersion); 
+                }
+
+
+            }
+   
+            WriteResult response = builder.build();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted(); 
+
+
+                     
         }
 
-        //@Override
-        public void DeleteFile(surfstore.SurfStoreBasic.FileInfo request,
+        @Override
+        public void deleteFile(surfstore.SurfStoreBasic.FileInfo request,
           		       io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.WriteResult> responseObserver) {
 
           //asyncUnimplementedUnaryCall(METHOD_DELETE_FILE, responseObserver);
@@ -357,7 +373,7 @@ public final class MetadataStore {
          
         /*
         @Override
-        public void IsLeader(surfstore.SurfStoreBasic.Empty request,
+        public void isLeader(surfstore.SurfStoreBasic.Empty request,
           		    io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.SimpleAnswer> responseObserver) {
 
            //asyncUnimplementedUnaryCall(METHOD_IS_LEADER, responseObserver);

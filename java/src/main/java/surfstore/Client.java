@@ -1,7 +1,8 @@
- package surfstore;
+package surfstore;
 
 import java.io.File;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
@@ -16,6 +17,9 @@ import net.sourceforge.argparse4j.inf.Namespace;
 import surfstore.SurfStoreBasic.Block;
 import surfstore.SurfStoreBasic.Block.Builder;
 import surfstore.SurfStoreBasic.Empty;
+import surfstore.SurfStoreBasic.FileInfo;
+import surfstore.SurfStoreBasic.WriteResult;
+import surfstore.SurfStoreBasic.WriteResult.Result;
 
 
 public final class Client {
@@ -67,12 +71,18 @@ public final class Client {
     }
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
     private void go() {
-	// metadataStub.ping(Empty.newBuilder().build());
-        // logger.info("Successfully pinged the Metadata server");
+
+     //test_Block();
+     //test_md_centralized_filenotfound();
+     test_md_centralized_missingblocks();
+
+
+    }
+
+    private void test_Block() {
         
         blockStub.ping(Empty.newBuilder().build());
         logger.info("Successfully pinged the Blockstore server");
-
 		Block b1 = stringToBlock("block_01");
 		Block b2 = stringToBlock("block_02");
 
@@ -90,6 +100,94 @@ public final class Client {
 		ensure(b1.getData().equals(b1.getData()));
 
 		logger.info("We passed all the tests... yay!");
+
+    }
+
+
+    private void test_md_centralized_filenotfound() {
+		
+		metadataStub.ping(Empty.newBuilder().build());
+		logger.info("Running test test_md_centralized_filenotfound");
+		
+		// test for a non-existant file
+		FileInfo nonExistantFile = FileInfo.newBuilder().setFilename("notfound.txt").build();
+		FileInfo nonExistantFileResult = metadataStub.readFile(nonExistantFile);
+		ensure(nonExistantFileResult.getFilename().equals("notfound.txt"));
+		ensure(nonExistantFileResult.getVersion() == 0);
+		
+        logger.info("test_md_centralized_filenotfound test passed... yay!");
+    }
+
+ 
+   
+    private void test_md_centralized_missingblocks() {
+		
+		metadataStub.ping(Empty.newBuilder().build());
+		logger.info("Running test test_md_centralized_missingblocks");
+		
+		// file cat.txt
+		
+		// test for a file with a good version, but missing blocks
+		Block cat_b0 = stringToBlock("cat_block0");
+		Block cat_b1 = stringToBlock("cat_block1");
+		Block cat_b2 = stringToBlock("cat_block2");
+		
+		ArrayList<String> cathashlist = new ArrayList<String>();
+		cathashlist.add(cat_b0.getHash());
+		cathashlist.add(cat_b1.getHash());
+		cathashlist.add(cat_b2.getHash());
+		
+		surfstore.SurfStoreBasic.FileInfo.Builder catBuilder = FileInfo.newBuilder();
+		catBuilder.setFilename("cat.txt");
+		catBuilder.setVersion(1);
+		catBuilder.addAllBlocklist(cathashlist);
+		FileInfo catreq = catBuilder.build();
+
+		/* test on readFile when file is not on record*/
+                FileInfo readResult = metadataStub.readFile(catreq);
+                ensure(readResult.getFilename().equals("cat.txt"));
+                ensure(readResult.getVersion() == 0);
+                
+                /* test on modifyFile*/
+		WriteResult catresult = metadataStub.modifyFile(catreq);
+		ensure(catresult.getResult().equals(Result.MISSING_BLOCKS));
+		ensure(catresult.getMissingBlocksCount() == 3);
+		
+		blockStub.storeBlock(cat_b0);
+		catresult = metadataStub.modifyFile(catreq);
+		ensure(catresult.getResult().equals(Result.MISSING_BLOCKS));
+		ensure(catresult.getMissingBlocksCount() == 2);
+		
+		blockStub.storeBlock(cat_b1);
+		catresult = metadataStub.modifyFile(catreq);
+		ensure(catresult.getResult().equals(Result.MISSING_BLOCKS));
+		ensure(catresult.getMissingBlocksCount() == 1);
+		
+		blockStub.storeBlock(cat_b2);
+		catresult = metadataStub.modifyFile(catreq);
+		ensure(catresult.getResult().equals(Result.OK));
+		
+                /* test on readFile when file is on record*/
+                readResult = metadataStub.readFile(catreq);
+                ensure(readResult.getFilename().equals("cat.txt"));
+                ensure(readResult.getVersion() == 1);
+
+                /* test on deleteFile*/
+	        surfstore.SurfStoreBasic.FileInfo.Builder myBuilder = FileInfo.newBuilder();
+     
+                FileInfo myreq1 = myBuilder.setFilename("cat.txt").setVersion(1).build();
+                WriteResult deleteResult = metadataStub.deleteFile(myreq1);
+                ensure(deleteResult.getResult().equals(Result.OLD_VERSION));  // v should be 2
+                ensure(deleteResult.getCurrentVersion() == 1);
+                
+                FileInfo myreq2 = myBuilder.setFilename("cat.txt").setVersion(2).build();
+		deleteResult = metadataStub.deleteFile(myreq2);
+                ensure(deleteResult.getResult().equals(Result.OK));  
+                ensure(deleteResult.getCurrentVersion() == 2);
+
+
+                logger.info("test_md_centralized_missingblocks test passed... yay!");
+
     }
 
     private static Namespace parseArgs(String[] args) {
