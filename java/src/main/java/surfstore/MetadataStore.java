@@ -38,13 +38,85 @@ public final class MetadataStore {
     
     private static  ManagedChannel blockChannel;
     private static  BlockStoreGrpc.BlockStoreBlockingStub blockStub;
+    
+    /* distributed system */
+    private static ManagedChannel metadataChannel1;
+    private static MetadataStoreGrpc.MetadataStoreBlockingStub metadataStub1;
+
+    private static ManagedChannel metadataChannel2;
+    private static MetadataStoreGrpc.MetadataStoreBlockingStub metadataStub2;
+  
+    private static  boolean leadIng;
+
+    public MetadataStore(ConfigReader config, int assignedId) {
+        
+        if(config.getNumMetadataServers() > 1)       // we have a distributed version
+        {
+            int leaderNumber = config.getLeaderNum();
+
+            int metaOne = config.getMetadataPort(1);
+            int metaTwo = config.getMetadataPort(2);
+            int metaThree = config.getMetadataPort(3);
+
+            if(leaderNumber == assignedId)          // this server is the leader
+            {
+                this.leadIng = true;
+
+                if (leaderNumber == 1){
+              
+                    this.metadataChannel1 = ManagedChannelBuilder.forAddress("127.0.0.1", metaTwo
+                      .usePlaintext(true).build();
+                    this.metadataStub1 = MetadataStoreGrpc.newBlockingStub(metadataChannel1);
+
+                    this.metadataChannel2 = ManagedChannelBuilder.forAddress("127.0.0.1", metaThree
+                      .usePlaintext(true).build();
+                    this.metadataStub2 = MetadataStoreGrpc.newBlockingStub(metadataChannel2);
+                }
+
+                else if (leaderNumber == 2) {
+
+                    this.metadataChannel1 = ManagedChannelBuilder.forAddress("127.0.0.1", metaOne
+                      .usePlaintext(true).build();
+                    this.metadataStub1 = MetadataStoreGrpc.newBlockingStub(metadataChannel1);
+
+                    this.metadataChannel2 = ManagedChannelBuilder.forAddress("127.0.0.1", metaThree
+                      .usePlaintext(true).build();
+                    this.metadataStub2 = MetadataStoreGrpc.newBlockingStub(metadataChannel2);
+              
+                }
+
+                else if (leaderNumber == 3) {
+
+                    this.metadataChannel1 = ManagedChannelBuilder.forAddress("127.0.0.1", metaTwo
+                      .usePlaintext(true).build();
+                    this.metadataStub1 = MetadataStoreGrpc.newBlockingStub(metadataChannel1);
+
+                    this.metadataChannel2 = ManagedChannelBuilder.forAddress("127.0.0.1", metaOne
+                      .usePlaintext(true).build();
+                    this.metadataStub2 = MetadataStoreGrpc.newBlockingStub(metadataChannel2);
+              
+                }
+            }
+
+            else                                    // this server is not leader
+            {
+                this.leadIng = false;
+
+                this.metadataChannel1 = null;
+                this.metadataStub1 = null;
+
+                this.metadataChannel2 = null;
+                this.metadataStub2 = null;
+            }
 
 
-    public MetadataStore(ConfigReader config) {
+        }
+
+       
         this.blockChannel = ManagedChannelBuilder.forAddress("127.0.0.1", config.getBlockPort())
                 .usePlaintext(true).build();
         this.blockStub = BlockStoreGrpc.newBlockingStub(blockChannel);
-    	this.config = config;
+    	  this.config = config;
 	}
 
     private void start(int port, int numThreads) throws IOException {
@@ -104,11 +176,14 @@ public final class MetadataStore {
         File configf = new File(c_args.getString("config_file"));
         ConfigReader config = new ConfigReader(configf);
 
+        int myid = c_args.getInt("number");
+        logger.info("Metadata server number " + myid + " starting");
+
         if (c_args.getInt("number") > config.getNumMetadataServers()) {
             throw new RuntimeException(String.format("metadata%d not in config file", c_args.getInt("number")));
         }
 
-        final MetadataStore server = new MetadataStore(config);
+        final MetadataStore server = new MetadataStore(config, myid);
         server.start(config.getMetadataPort(c_args.getInt("number")), c_args.getInt("threads"));
         server.blockUntilShutdown();
     }
@@ -128,11 +203,15 @@ public final class MetadataStore {
     static class MetadataStoreImpl extends MetadataStoreGrpc.MetadataStoreImplBase {
         
        		protected Map<String, Info> storedFile;
+          protected boolean crushed;
+          
 
-		public MetadataStoreImpl() {
-			super();
-			this.storedFile = new HashMap<String, Info>();
-		}
+      	public MetadataStoreImpl() {
+		      super();
+			    this.storedFile = new HashMap<String, Info>();
+          this.crushed = false;
+          
+		    }
 
         @Override
         public void ping(Empty req, final StreamObserver<Empty> responseObserver) {
@@ -371,14 +450,51 @@ public final class MetadataStore {
 
         }
          
-        /*
+        
         @Override
         public void isLeader(surfstore.SurfStoreBasic.Empty request,
           		    io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.SimpleAnswer> responseObserver) {
 
            //asyncUnimplementedUnaryCall(METHOD_IS_LEADER, responseObserver);
+
+                SimpleAnswer response = SimpleAnswer.newBuilder().setAnswer(leadIng).build();
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
            
         }
-        */
-    }
+        
+
+        @Override
+        public void crash(surfstore.SurfStoreBasic.Empty request,
+                  io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.Empty> responseObserver) {
+
+            this.crushed = true;
+            Empty response = Empty.newBuilder().build();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+            
+
+        }
+
+        @Override
+        public void restore(surfstore.SurfStoreBasic.Empty request,
+                  io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.Empty> responseObserver) {
+            
+            this.crushed = false;
+            Empty response = Empty.newBuilder().build();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+                
+        }
+
+        @Override
+        public void isCrashed(surfstore.SurfStoreBasic.Empty request,
+                  io.grpc.stub.StreamObserver<surfstore.SurfStoreBasic.Empty> responseObserver) {
+            
+
+             SimpleAnswer response = SimpleAnswer.newBuilder().setAnswer(this.crushed).build();
+             responseObserver.onNext(response);
+             responseObserver.onCompleted();
+                
+        }
 }
